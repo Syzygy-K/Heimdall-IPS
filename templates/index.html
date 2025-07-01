@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Xray Dashboard - Threat Intel Edition</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- 引入 Chart.js 用于图表 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #f8f9fa; }
@@ -50,8 +49,10 @@
                 <div class="card shadow-sm">
                     <div class="card-header"><h2>IP 管控状态</h2></div>
                     <div class="card-body">
-                        <h5>已封禁 IP</h5>
+                        <h5>手动封禁 IP</h5>
                         <ul class="list-group mb-3" id="banned-ips-list"></ul>
+                        <h5>自动化防御日志 (Auto-Ban)</h5>
+                        <ul class="list-group mb-3" id="auto-banned-ips-list"></ul>
                         <h5>已限速 IP</h5>
                         <ul class="list-group" id="limited-ips-list"></ul>
                     </div>
@@ -87,152 +88,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        let connectionsChart;
-        const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
-        const limitIpModal = new bootstrap.Modal(document.getElementById('limitIpModal'));
-
-        async function updateDashboard() {
-            try {
-                const response = await fetch('/api/data');
-                const data = await response.json();
-
-                // 更新系统资源
-                document.getElementById('cpu-usage').innerText = `${data.sys_info.cpu.toFixed(1)} %`;
-                document.getElementById('memory-usage').innerText = `${data.sys_info.memory.toFixed(1)} %`;
-                document.getElementById('disk-usage').innerText = `${data.sys_info.disk.toFixed(1)} %`;
-
-                // 更新流量统计
-                document.getElementById('stats-table-body').innerHTML = data.stats.map(stat => `<tr><td><code>${stat.name}</code></td><td class="text-end"><span class="badge bg-primary rounded-pill fs-6">${stat.value}</span></td></tr>`).join('') || '<tr><td colspan="2">暂无流量数据</td></tr>';
-
-                const bannedIpMap = new Map(data.banned_ips.map(item => [item.ip, item.num]));
-                const limitedIpMap = new Map(data.limited_ips.map(item => [item.ip, item.rate]));
-
-                // 更新连接记录与控制按钮
-                document.getElementById('connectionsAccordion').innerHTML = Object.entries(data.connections).map(([ip, conn_list], index) => {
-                    const locationInfo = conn_list[0].location ? `<small class="text-muted ms-2">(${conn_list[0].location})</small>` : '';
-                    
-                    // 关键修改：在详情表格中增加信誉标签
-                    const detailsHtml = conn_list.slice(0, 100).reverse().map(conn => {
-                        const reputation = conn.reputation || { status: 'N/A', class: 'light' };
-                        return `<tr>
-                                    <td><small>${conn.timestamp}</small></td>
-                                    <td>
-                                        <code>${conn.destination}</code>
-                                        <span class="badge bg-${reputation.class} float-end">${reputation.status}</span>
-                                    </td>
-                                </tr>`;
-                    }).join('');
-                    
-                    let ipStatusHtml = '';
-                    if (bannedIpMap.has(ip)) {
-                        ipStatusHtml = `<button class="btn btn-success btn-sm btn-action" data-action="unban-ip" data-value="${bannedIpMap.get(ip)}">解封</button>`;
-                    } else if (limitedIpMap.has(ip)) {
-                        const rate = limitedIpMap.get(ip);
-                        ipStatusHtml = `<span class="badge bg-info me-2">${rate}</span><button class="btn btn-outline-secondary btn-sm btn-action" data-action="remove-ip-limit" data-value="${ip}">取消限速</button>`;
-                    } else {
-                        ipStatusHtml = `
-                            <button class="btn btn-danger btn-sm btn-action me-1" data-action="ban-ip" data-value="${ip}">封禁</button>
-                            <button class="btn btn-primary btn-sm btn-action" data-action="limit-ip" data-value="${ip}">限速</button>`;
-                    }
-
-                    return `<div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${index}">
-                                    来源 IP: <code>${ip}</code> ${locationInfo}
-                                    <span class="badge bg-secondary ms-auto me-2">连接数: ${conn_list.length}</span>
-                                    ${ipStatusHtml}
-                                </button>
-                            </h2>
-                            <div id="collapse-${index}" class="accordion-collapse collapse" data-bs-parent="#connectionsAccordion">
-                                <div class="accordion-body p-2"><table class="table table-sm table-striped table-hover mb-0"><thead><tr><th>时间戳</th><th>访问目标 (信誉)</th></tr></thead><tbody>${detailsHtml}</tbody></table></div>
-                            </div>
-                        </div>`;
-                }).join('') || '<p class="text-center text-muted">暂无近期连接记录</p>';
-
-                // 更新 IP 管控状态列表
-                document.getElementById('banned-ips-list').innerHTML = data.banned_ips.map(item => `<li class="list-group-item d-flex justify-content-between align-items-center"><code>${item.ip}</code><button class="btn btn-success btn-sm btn-action" data-action="unban-ip" data-value="${item.num}">解封</button></li>`).join('') || '<li class="list-group-item">当前没有已封禁的 IP。</li>';
-                document.getElementById('limited-ips-list').innerHTML = data.limited_ips.map(item => `<li class="list-group-item d-flex justify-content-between align-items-center"><code>${item.ip}</code><span class="badge bg-info">${item.rate}</span><button class="btn btn-outline-secondary btn-sm btn-action" data-action="remove-ip-limit" data-value="${item.ip}">取消</button></li>`).join('') || '<li class="list-group-item">当前没有已限速的 IP。</li>';
-
-                // 更新图表
-                if (data.connections && Object.keys(data.connections).length > 0) {
-                    const chart_labels = Object.keys(data.connections);
-                    const chart_data = Object.values(data.connections).map(v => v.length);
-                    if (connectionsChart) {
-                        connectionsChart.data.labels = chart_labels;
-                        connectionsChart.data.datasets[0].data = chart_data;
-                        connectionsChart.update();
-                    } else {
-                        const ctx = document.getElementById('connectionsChart').getContext('2d');
-                        connectionsChart = new Chart(ctx, { type: 'pie', data: { labels: chart_labels, datasets: [{ data: chart_data, borderWidth: 1 }] } });
-                    }
-                }
-                
-                document.getElementById('last-updated').innerText = `最后更新于: ${new Date().toLocaleTimeString()}`;
-            } catch (error) { console.error('Failed to fetch dashboard data:', error); }
-        }
-
-        // 事件处理
-        document.body.addEventListener('click', function(event) {
-            const target = event.target.closest('.btn-action');
-            if (!target) return;
-            event.preventDefault();
-
-            const action = target.dataset.action;
-            const value = target.dataset.value;
-            let confirmMsg = '', url = '', showConfirm = true, httpMethod = 'POST';
-
-            switch(action) {
-                case 'restart-xray': url = '/actions/restart_xray'; confirmMsg = '您确定要重启 Xray 服务吗？'; break;
-                case 'ban-ip': url = `/actions/ban/${value}`; confirmMsg = `您确定要封禁 IP 地址 <strong>${value}</strong> 吗？`; break;
-                case 'unban-ip': url = `/actions/unban/${value}`; confirmMsg = `您确定要解封规则 #${value} 吗？`; break;
-                case 'remove-ip-limit': url = `/actions/remove_ip_limit`; confirmMsg = `您确定要取消对 IP <strong>${value}</strong> 的限速吗？`; break;
-                case 'limit-ip': 
-                    showConfirm = false;
-                    document.getElementById('limitIpAddress').innerText = value;
-                    limitIpModal.show();
-                    document.getElementById('confirmLimitButton').onclick = () => {
-                        const rate = document.getElementById('limitRateInput').value;
-                        const formData = new FormData();
-                        formData.append('ip', value);
-                        formData.append('rate_kbit', rate);
-                        performAction('/actions/set_ip_limit', { method: 'POST', body: formData });
-                        limitIpModal.hide();
-                    };
-                    break;
-            }
-            
-            if (showConfirm && url) {
-                const modalBody = document.getElementById('confirmModalBody');
-                const confirmButton = document.getElementById('confirmModalButton');
-                modalBody.innerHTML = confirmMsg;
-                confirmModal.show();
-                
-                let postBody = null;
-                if (action === 'remove-ip-limit') {
-                    const formData = new FormData();
-                    formData.append('ip', value);
-                    postBody = formData;
-                }
-
-                confirmButton.onclick = () => { performAction(url, { method: 'POST', body: postBody }); confirmModal.hide(); };
-            }
-        });
-
-        async function performAction(url, options) {
-            try {
-                const response = await fetch(url, options);
-                const result = await response.json();
-                alert(result.message);
-                if (response.ok) { updateDashboard(); }
-            } catch (error) { alert('操作失败，请查看控制台日志。'); console.error('Action failed:', error); }
-        }
-
-        // 页面加载与定时刷新
-        document.addEventListener('DOMContentLoaded', () => {
-            updateDashboard();
-            setInterval(updateDashboard, 15000); // 15秒刷新一次
-        });
-    </script>
+    <!-- 关键修改：引用外部 JavaScript 文件 -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 </body>
 </html>
