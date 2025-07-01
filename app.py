@@ -32,7 +32,7 @@ PASSWORD_HASH = 'scrypt:32768:8:1$kuRme4WyAGpJBGJa$c02221f2bebd0ac754930acb4f291
 XRAY_API_ADDRESS = '127.0.0.1:10085'
 XRAY_ACCESS_LOG = '/var/log/xray/access.log'
 NETWORK_INTERFACE = "ens4" 
-VT_API_KEY = ''
+VT_API_KEY = '此处填入你的VirusTotal API'
 
 # --- Redis 配置 ---
 redis_pool = redis.ConnectionPool(host='localhost', port=6379, db=0, decode_responses=True)
