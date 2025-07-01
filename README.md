@@ -2,6 +2,11 @@
 
 一个基于 Web 的 Xray-core 监控与管理面板。
 
+<img width="1505" alt="image" src="https://github.com/user-attachments/assets/fbf5524d-5d6b-4ba2-8f2c-fd9bbaa2c43b" />
+
+
+
+
 ---
 
 ## 功能列表
