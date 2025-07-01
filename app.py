@@ -90,7 +90,11 @@ def get_target_reputation(target):
         time.sleep(16)
         response = requests.get(url, headers=headers)
         response.raise_for_status()
-        data, stats = response.json(), data.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+        
+        # --- 关键修正：将赋值操作拆分为两行 ---
+        data = response.json()
+        stats = data.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+        
         malicious, suspicious = stats.get('malicious', 0), stats.get('suspicious', 0)
         if malicious > 0: reputation = {'status': '恶意', 'class': 'danger'}
         elif suspicious > 0: reputation = {'status': '可疑', 'class': 'warning'}
